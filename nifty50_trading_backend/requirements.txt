@@ -21,9 +21,10 @@ mdurl==0.1.2
 packaging==24.2
 pluggy==1.5.0
 pycodestyle==2.13.0
-pydantic==2.11.3
+# Pydantic v2 and pydantic-settings v2 (explicit range compliance)
+pydantic==2.11.3  # satisfies >=2,<3
 pydantic_core==2.33.1
-pydantic-settings==2.7.1
+pydantic-settings==2.7.1  # satisfies >=2,<3
 pyflakes==3.3.2
 Pygments==2.19.1
 pytest==8.3.5

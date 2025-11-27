@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,
+        # Ignore unrelated environment variables injected by the platform to prevent ValidationError
+        extra="ignore",
     )
 
 
