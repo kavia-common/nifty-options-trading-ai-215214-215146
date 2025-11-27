@@ -20,11 +20,13 @@ class Settings(BaseSettings):
     BROKER_API_SECRET: str | None = Field(default=None, description="Broker API secret")
 
     # Pydantic v2 settings configuration (replaces class Config in v1)
+    # Explicitly ignore any extra environment variables injected by platform
+    # and read from .env using UTF-8.
     model_config = SettingsConfigDict(
-        env_file=".env",
-        case_sensitive=False,
-        # Ignore unrelated environment variables injected by the platform to prevent ValidationError
         extra="ignore",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
     )
 
 
