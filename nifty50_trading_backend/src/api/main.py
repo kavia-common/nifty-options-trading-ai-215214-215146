@@ -1,8 +1,7 @@
-from typing import Optional, List
+
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
 
 from src.config.settings import get_settings
 from src.services.pipeline_service import PipelineService
@@ -11,6 +10,28 @@ from src.services.rl_service import RLService
 from src.services.broker_service import BrokerService
 from src.utils.observability import metrics_router
 from src.utils.logging import get_logger
+from src.schemas.requests import (
+    IngestRequest,
+    FeatureRequest,
+    TrainRequest,
+    PredictRequest,
+    RLTrainRequest,
+    RLSimulateRequest,
+    PaperTradeRequest,
+    PlaceOrderRequest,
+)
+from src.schemas.responses import (
+    IngestResponse,
+    FeatureResponse,
+    TrainResponse,
+    PredictResponse,
+    RLTrainResponse,
+    RLSimulateResponse,
+    PaperTradeResponse,
+    BalanceResponse,
+    PositionsResponse,
+    OrderResponse,
+)
 
 # Initialize settings and logger
 settings = get_settings()
@@ -54,83 +75,6 @@ def create_app() -> FastAPI:
     model_service = ModelService(settings=settings)
     rl_service = RLService(settings=settings)
     broker_service = BrokerService(settings=settings)
-
-    # ----- Schemas -----
-    class IngestRequest(BaseModel):
-        """Request for data ingestion."""
-        ticker: str = Field(default="^NSEI", description="Symbol to fetch (e.g., ^NSEI for NIFTY50)")
-        period: str = Field(default="1y", description="Period for yfinance (e.g., 1y, 6mo, 5y)")
-        interval: str = Field(default="1d", description="Interval for yfinance (e.g., 1d, 1h, 15m)")
-
-    class IngestResponse(BaseModel):
-        """Response for data ingestion."""
-        rows: int = Field(..., description="Number of rows ingested")
-        path: str = Field(..., description="Storage path")
-
-    class FeatureRequest(BaseModel):
-        """Request to compute features."""
-        input_path: Optional[str] = Field(default=None, description="Path to data CSV; if omitted, uses most recent")
-        indicators: Optional[List[str]] = Field(default=None, description="Specific indicators to compute (default set if empty)")
-
-    class FeatureResponse(BaseModel):
-        """Response for feature pipeline."""
-        rows: int = Field(..., description="Number of rows in features")
-        path: str = Field(..., description="Features CSV path")
-
-    class TrainRequest(BaseModel):
-        """Training request for supervised DL model."""
-        features_path: Optional[str] = Field(default=None, description="Features CSV path")
-        epochs: int = Field(default=5, description="Epochs to train (keep small for demo/CI)")
-        lr: float = Field(default=1e-3, description="Learning rate")
-        batch_size: int = Field(default=64, description="Batch size")
-
-    class TrainResponse(BaseModel):
-        """Training response for supervised DL model."""
-        model_path: str = Field(..., description="Saved model path")
-        metrics: dict = Field(default_factory=dict, description="Training metrics")
-
-    class PredictRequest(BaseModel):
-        """Inference request for supervised DL model."""
-        features_path: Optional[str] = Field(default=None, description="Features CSV path")
-        horizon: int = Field(default=1, description="Prediction horizon steps")
-
-    class PredictResponse(BaseModel):
-        """Inference response for supervised DL model."""
-        predictions_path: str = Field(..., description="Saved predictions CSV path")
-        count: int = Field(..., description="Number of predictions")
-
-    class RLTrainRequest(BaseModel):
-        """Request to train RL policy."""
-        timesteps: int = Field(default=1000, description="Number of training timesteps (keep small in CI)")
-        algo: str = Field(default="PPO", description="RL algorithm: PPO or A2C")
-        features_path: Optional[str] = Field(default=None, description="Features CSV path for env")
-
-    class RLTrainResponse(BaseModel):
-        """Response for RL training."""
-        policy_path: str = Field(..., description="Saved policy path")
-        algo: str = Field(..., description="Algorithm used")
-
-    class RLSimulateRequest(BaseModel):
-        """Request to simulate RL policy."""
-        policy_path: Optional[str] = Field(default=None, description="Existing policy path; train quick policy if omitted")
-        episodes: int = Field(default=2, description="Number of episodes to simulate")
-        features_path: Optional[str] = Field(default=None, description="Features CSV path for env")
-
-    class RLSimulateResponse(BaseModel):
-        """Response for RL simulation."""
-        results_path: str = Field(..., description="Simulation results CSV path")
-        episodes: int = Field(..., description="Episodes simulated")
-
-    class PaperTradeRequest(BaseModel):
-        """Request to run paper trading."""
-        policy_path: Optional[str] = Field(default=None, description="RL policy to use for paper trading")
-        capital: float = Field(default=100000.0, description="Starting capital")
-        risk_per_trade: float = Field(default=0.01, description="Fraction of capital to risk per trade")
-
-    class PaperTradeResponse(BaseModel):
-        """Response for paper trading run."""
-        run_id: str = Field(..., description="Identifier for the paper trading run")
-        summary_path: str = Field(..., description="Path to summary CSV/JSON")
 
     # ----- Routes -----
     @app.get("/", tags=["health"], summary="Health Check")
@@ -239,6 +183,39 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.exception("Paper trading failed")
             raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/broker/balance", tags=["broker"], response_model=BalanceResponse, summary="Get paper broker balance")
+    # PUBLIC_INTERFACE
+    def broker_balance() -> BalanceResponse:
+        """Return the current paper broker account balance."""
+        try:
+            balance = broker_service.get_balance()
+            return BalanceResponse(balance=balance)
+        except Exception as e:
+            logger.exception("Balance retrieval failed")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/broker/positions", tags=["broker"], response_model=PositionsResponse, summary="Get paper broker positions")
+    # PUBLIC_INTERFACE
+    def broker_positions() -> PositionsResponse:
+        """Return the current number of open positions at the paper broker."""
+        try:
+            positions = broker_service.get_positions()
+            return PositionsResponse(positions=positions)
+        except Exception as e:
+            logger.exception("Positions retrieval failed")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/broker/order", tags=["broker"], response_model=OrderResponse, summary="Place paper broker order")
+    # PUBLIC_INTERFACE
+    def broker_order(req: PlaceOrderRequest) -> OrderResponse:
+        """Place a paper broker order and return order id with updated account state."""
+        try:
+            order_id, balance, positions = broker_service.place_order(req.side, req.quantity, req.price)
+            return OrderResponse(order_id=order_id, balance=balance, positions=positions)
+        except Exception as e:
+            logger.exception("Order placement failed")
+            raise HTTPException(status_code=400, detail=str(e))
 
     return app
 
