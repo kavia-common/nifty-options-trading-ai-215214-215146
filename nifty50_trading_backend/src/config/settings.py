@@ -1,6 +1,8 @@
 import os
 from functools import lru_cache
-from pydantic import BaseSettings, Field
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -17,9 +19,11 @@ class Settings(BaseSettings):
     BROKER_API_KEY: str | None = Field(default=None, description="Broker API key")
     BROKER_API_SECRET: str | None = Field(default=None, description="Broker API secret")
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    # Pydantic v2 settings configuration (replaces class Config in v1)
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+    )
 
 
 @lru_cache
